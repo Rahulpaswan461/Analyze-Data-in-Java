@@ -1,0 +1,122 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+public class EmployeeAnalyzer {
+
+    // Function to parse the date and time from the input file
+    private static Date parseDateTime(String dateTimeStr) throws ParseException {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy hh:mm a");
+        return dateFormat.parse(dateTimeStr);
+    }
+
+    // Function to calculate the time difference between two date objects
+    private static double calculateTimeDifference(Date startTime, Date endTime) {
+        long diffMilliseconds = endTime.getTime() - startTime.getTime();
+        return diffMilliseconds / (60.0 * 60.0 * 1000.0);
+    }
+
+    // Function to analyze the employee data and print results
+    private static void analyzeEmployeeData(String filePath) {
+        try (FileInputStream fileInputStream = new FileInputStream(new File(filePath));
+             Workbook workbook = new XSSFWorkbook(fileInputStream)) {
+
+            // Assume the file has only one sheet
+            Sheet sheet = workbook.getSheetAt(0);
+
+            Map<String, Map<String, Object>> employees = new HashMap<>();
+
+            // Iterate through each row in the sheet
+            for (Row row : sheet) {
+                if (row.getRowNum() == 0) {
+                    // Skip header row
+                    continue;
+                }
+
+                String name = row.getCell(7).getStringCellValue();
+                String positionId = row.getCell(0).getStringCellValue();
+                String positionStatus = row.getCell(1).getStringCellValue();
+                Date timeIn = parseDateTime(row.getCell(2).getStringCellValue());
+                Date timeOut = parseDateTime(row.getCell(3).getStringCellValue());
+
+                if (employees.containsKey(name)) {
+                    Map<String, Object> info = employees.get(name);
+                    List<Object[]> shifts = (List<Object[]>) info.get("shifts");
+                    shifts.add(new Object[]{timeIn, timeOut});
+                } else {
+                    Map<String, Object> info = new HashMap<>();
+                    info.put("positionId", positionId);
+                    info.put("positionStatus", positionStatus);
+                    List<Object[]> shifts = new ArrayList<>();
+                    shifts.add(new Object[]{timeIn, timeOut});
+                    info.put("shifts", shifts);
+                    employees.put(name, info);
+                }
+            }
+
+            // Analyze and print results
+            for (Map.Entry<String, Map<String, Object>> entry : employees.entrySet()) {
+                String name = entry.getKey();
+                Map<String, Object> info = entry.getValue();
+                List<Object[]> shifts = (List<Object[]>) info.get("shifts");
+
+                // Check for 7 consecutive days of work
+                boolean consecutiveDays = false;
+                for (int i = 0; i < shifts.size() - 1; i++) {
+                    long daysDifference = (long) ((Date) shifts.get(i + 1)[0]).getTime() - ((Date) shifts.get(i)[0]).getTime();
+                    daysDifference /= (24 * 60 * 60 * 1000);
+                    if (daysDifference == 1) {
+                        consecutiveDays = true;
+                        break;
+                    }
+                }
+
+                // Check for less than 10 hours between shifts but greater than 1 hour
+                boolean shortBreaks = false;
+                for (int i = 0; i < shifts.size() - 1; i++) {
+                    double hoursDifference = calculateTimeDifference((Date) shifts.get(i)[1], (Date) shifts.get(i + 1)[0]);
+                    if (hoursDifference > 1 && hoursDifference < 10) {
+                        shortBreaks = true;
+                        break;
+                    }
+                }
+
+                // Check for more than 14 hours in a single shift
+                boolean longShifts = false;
+                for (Object[] shift : shifts) {
+                    double hoursDifference = calculateTimeDifference((Date) shift[0], (Date) shift[1]);
+                    if (hoursDifference > 14) {
+                        longShifts = true;
+                        break;
+                    }
+                }
+
+                // Print results
+                if (consecutiveDays) {
+                    System.out.println(name + " (Position ID: " + info.get("positionId") + "): Worked 7 consecutive days.");
+                }
+                if (shortBreaks) {
+                    System.out.println(name + " (Position ID: " + info.get("positionId") + "): Less than 10 hours between shifts but greater than 1 hour.");
+                }
+                if (longShifts) {
+                    System.out.println(name + " (Position ID: " + info.get("positionId") + "): Worked more than 14 hours in a single shift.");
+                }
+            }
+
+        } catch (IOException | ParseException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Example usage
+    public static void main(String[] args) {
+        String filePath = "employee_data.xlsx";
+        analyzeEmployeeData(filePath);
+    }
+}
